@@ -1,6 +1,7 @@
 import boto3
 dynamodb = boto3.client('dynamodb')
 import datetime
+import pytz
 
 TABLE_NAME = "KingOfTheRoom"
 
@@ -18,7 +19,7 @@ def lambda_handler(event, context):
 
 def handle_launch(event):
     """Handles skill launch"""
-    return build_response("Welcome", "Welcome", False)
+    return build_response("welcome to king of the room. you may either ask who is king or make somebody else king.", "WELCOME", False)
 
 def handle_intent(event, uid):
     """Handles skill intents"""
@@ -35,11 +36,14 @@ def handle_intent(event, uid):
         return handle_end()
 
     elif intentType == "AMAZON.HelpIntent":
-        return build_response("I don't understand", "help", False)
+        return build_response("ask who is king or make somebody else king", "HELP", False)
+
+    elif intentType == "AMAZON.FallbackIntent":
+        return build_response("ask who is king or make somebody else king", "HELP", False)
 
 def handle_end(event):
     """Handles session end"""
-    return build_response("Goodbye", "Goodbye", True)
+    return build_response("goodbye", "GOODBYE", True)
 
 def build_response(speech_text, card_text, should_end_session):
     """Alexa response"""
@@ -80,10 +84,13 @@ def handle_get_king(uid):
         curr_king = item['Item']['CurrKing']['S']
         old_king = item['Item']['OldKing']['S']
         duration = formatDuration(datetime.timedelta(seconds=int(datetime.datetime.now().timestamp()) - int(item['Item']['StartTime']['N'])))
-        start_date = datetime.datetime.fromtimestamp(int(item['Item']['StartTime']['N'])).strftime("%B %d, %Y at %I:%M %p")
+        start_date = datetime.datetime.fromtimestamp(
+            int(item['Item']['StartTime']['N']),
+            pytz.timezone('America/New_York')
+        ).strftime("%B %d, %Y at %I:%M %p")
         return build_response(f"the reigning king is {curr_king} who has been on the throne for {duration} since usurping {old_king} on {start_date}", "get", False)
     except KeyError:
-        return build_response("the throne is empty", "get", False)
+        return build_response("the throne is empty", "INQUIRY", False)
 
 def handle_set_king(uid, king):
     """Set new king"""
@@ -93,7 +100,7 @@ def handle_set_king(uid, king):
         old_king = old_item['Item']['CurrKing']['S']
 
         if king == old_king:
-            return build_response(f"{old_king} is already in power", "set", False)
+            return build_response(f"{old_king} is already in power", "INQUIRY", False)
         
     except KeyError:
         old_king = "nobody"
@@ -105,7 +112,14 @@ def handle_set_king(uid, king):
         'StartTime':{'N':str(int(datetime.datetime.now().timestamp()))},
     })
     
-    return build_response(f"{king} is now king", "set", False)
+    return build_response(f"{king} is now king", "USURP", False)
 
 def formatDuration(dur):
-    return f"{dur.days} days and {dur.seconds} seconds"
+    """Convert timedelta to duration string"""
+    hours, minutes = divmod(dur.seconds, 3600)
+    minutes, seconds = divmod(minutes, 60)
+    return f"{dur.days} {pluralize(dur.days, 'day')} {hours} {pluralize(hours, 'hour')} {minutes} {pluralize(minutes, 'minute')} and {seconds} {pluralize(seconds, 'second')}"
+
+def pluralize(n, s):
+    """Naive pluralization"""
+    return s+"s" if n != 1 else s
